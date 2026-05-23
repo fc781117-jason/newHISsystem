@@ -8,3 +8,64 @@
 @media(max-width:640px){
   body{background:#f7f8fb}.topbar{border-radius:0 0 22px 22px}.brand{align-items:flex-start}.brand strong{font-size:18px}.brand small{display:none}.top-controls label{font-size:11px}.content{padding:12px}.metric,.card,.ann,.identityCard>div{border-radius:18px}.four{grid-template-columns:1fr}.split{grid-template-columns:1fr}.pageTitle{margin-bottom:12px}.pageTitle p{font-size:13px}.identityCard{gap:8px}.sidebar{width:86vw}.kanban{grid-template-columns:1fr}.moduleItem{border-radius:14px}.toast{right:12px;bottom:12px;max-width:calc(100vw - 24px)}
 }
+
+
+/* ===== V8 compact dashboard, collapsible filters, RBAC group view ===== */
+.topbar{display:grid;grid-template-columns:minmax(230px,1.2fr) minmax(220px,1fr) minmax(260px,1.1fr);align-items:center}
+.filterPanel{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:8px 10px}
+.filterPanel summary{cursor:pointer;font-weight:900;color:#1d4ed8;list-style:none}
+.filterPanel summary::-webkit-details-marker{display:none}
+.filterPanel summary:before{content:"🔎";margin-right:6px}
+.filterGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:10px}
+.filterGrid label{font-size:12px;color:#475569;font-weight:800;display:grid;gap:5px}
+.filterGrid input,.filterGrid select{width:100%;height:42px;border:1px solid #d0d5dd;border-radius:12px;padding:8px 10px;background:white}
+.userbox{grid-template-columns:1fr auto;align-items:center}
+.content{max-width:1280px;width:100%;margin:0 auto}
+.compactMetrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}
+.compactMetrics .metric{min-height:88px;padding:14px 16px}
+.compactMetrics .metric strong{font-size:26px}
+.dashboardGrid{display:grid;grid-template-columns:.9fr 1.1fr;gap:16px}
+.groupOverview{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.groupStat{background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:12px;display:grid;gap:4px}
+.groupStat span{font-size:12px;color:#667085;font-weight:900}
+.groupStat strong{font-size:20px}
+.groupStat small{color:#667085}
+.miniToolbar{display:flex;justify-content:flex-end;margin-bottom:10px}
+.miniToolbar label{font-size:12px;color:#475569;font-weight:900;display:grid;gap:5px;min-width:180px}
+.miniToolbar select,.staffInlineSelect{height:40px;border:1px solid #d0d5dd;border-radius:12px;padding:8px 10px;background:#fff}
+.accordionList details{background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:8px 10px;margin-bottom:10px}
+.accordionList summary{cursor:pointer;font-weight:900;display:flex;justify-content:space-between;align-items:center}
+.accordionList summary span{background:#e0e7ff;color:#1e40af;border-radius:999px;padding:2px 8px;font-size:12px}
+.accordionList .taskLine{margin-top:8px}
+.identityCard{display:none!important}
+.moduleItem{display:block}
+.moduleItem summary{cursor:pointer;font-weight:900;color:#172033}
+.moduleItem p,.moduleItem small,.moduleItem em{display:block;margin-top:8px}
+.moduleGrid{grid-template-columns:1fr}
+.moduleBlock{margin-top:0}
+td select{width:100%;min-width:150px;border:1px solid #d0d5dd;border-radius:10px;padding:8px;background:white}
+
+@media(max-width:1050px){
+  .topbar{grid-template-columns:1fr;position:relative;gap:10px}
+  .filterPanel{order:2}
+  .userbox{order:3}
+  .filterGrid{grid-template-columns:1fr}
+  .compactMetrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .compactMetrics .metric{min-height:76px;padding:12px}
+  .dashboardGrid{grid-template-columns:1fr}
+  .groupOverview{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .miniToolbar{justify-content:stretch}.miniToolbar label{width:100%}
+}
+
+@media(max-width:640px){
+  .brand strong{font-size:15px}
+  .icon{padding:8px 10px}
+  .filterPanel{padding:10px;border-radius:16px}
+  .userbox{padding:10px;border-radius:16px}
+  .compactMetrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .compactMetrics .metric strong{font-size:22px}
+  .compactMetrics .metric span{font-size:12px}
+  .groupOverview{grid-template-columns:1fr}
+  .dashboardGrid .card{padding:14px}
+  .pageTitle h2{font-size:20px}
+}

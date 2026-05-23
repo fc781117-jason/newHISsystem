@@ -1,8 +1,8 @@
 {
-  "name": "nrs-clinic-ops-demo-v7-mobile-ops",
-  "version": "7.0.0",
+  "name": "nrs-clinic-ops-demo-v8-dashboard-rbac",
+  "version": "8.0.0",
   "private": true,
-  "description": "NRS clinic operations workflow integration demo V7 with mobile-first UI, module map, shift swap requests, OpenAI, Google Auth and Supabase cloud database. Mock data only.",
+  "description": "NRS clinic demo V8 with compact mobile dashboard, collapsible filters, group-aware task board, staff group editing and refined module consolidation.",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",

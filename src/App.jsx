@@ -9,6 +9,10 @@ const addMonths = (date, m) => { const d = new Date(date); d.setMonth(d.getMonth
 const daysInMonth = (key) => { const [y,m] = key.split("-").map(Number); return new Date(y, m, 0).getDate(); };
 const ymDate = (key, day) => `${key}-${String(day).padStart(2,"0")}`;
 const nextMonthOptions = () => Array.from({length:4}, (_,i)=>monthKey(addMonths(new Date(), i)));
+const managerRoles = ["super_admin", "clinic_manager", "auditor"];
+const isManagerRole = (role) => managerRoles.includes(role);
+const priorityOrder = { "高": 1, "中": 2, "低": 3 };
+const statusOrder = { "待處理": 1, "進行中": 2, "待審核": 3, "已完成": 9 };
 
 const legacyModules = [
   {
@@ -40,6 +44,7 @@ function App() {
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [selectedMonth, setSelectedMonth] = useState(monthKey());
   const [query, setQuery] = useState("");
+  const [taskViewMode, setTaskViewMode] = useState("priority");
   const [patients, setPatients] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [staff, setStaff] = useState([]);
@@ -70,7 +75,7 @@ function App() {
     if (!profile) return;
     setClinic(profile.default_clinic || "台北");
     loadAll();
-    const channel = supabase.channel("nrs-demo-v7-realtime")
+    const channel = supabase.channel("nrs-demo-v8-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "patients_mock" }, loadAll)
       .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, loadAll)
       .on("postgres_changes", { event: "*", schema: "public", table: "announcements" }, loadAll)
@@ -256,6 +261,27 @@ function App() {
     await logAudit("變更角色權限", "Staff", "profiles", `${userId} -> ${role}`); loadAll();
   }
 
+  async function updateProfileField(userId, field, value) {
+    await supabase.from("profiles").update({ [field]: value }).eq("id", userId);
+    await logAudit("變更人員資料", "Staff", "profiles", `${userId} ${field} -> ${value}`);
+    loadAll();
+  }
+
+  function visibleTasksForProfile(allTasks) {
+    if (isManagerRole(profile?.role)) return allTasks;
+    const group = profile?.group_name || "";
+    return allTasks.filter(t => t.group_name === group || t.owner_id === session?.user?.id);
+  }
+
+  function sortedTasksForDashboard(allTasks) {
+    const base = visibleTasksForProfile(allTasks).filter(t => t.status !== "已完成");
+    return [...base].sort((a,b) => {
+      if (taskViewMode === "priority") return (priorityOrder[a.priority] || 9) - (priorityOrder[b.priority] || 9);
+      if (taskViewMode === "status") return (statusOrder[a.status] || 9) - (statusOrder[b.status] || 9);
+      return String(a.group_name || "").localeCompare(String(b.group_name || ""), "zh-Hant");
+    });
+  }
+
   const filteredPatients = useMemo(() => filterRows(patients, query, ["name","chart_no","disease","current_status"]), [patients, query]);
   const filteredTasks = useMemo(() => filterRows(tasks, query, ["title","task_type","status","group_name"]), [tasks, query]);
 
@@ -272,15 +298,20 @@ function App() {
           <button className="icon" onClick={() => setMobileOpen(!mobileOpen)}>☰</button>
           <div><strong>{APP_TITLE}</strong><small>雲端多人互動 Demo｜Google + Supabase + OpenAI Edge Function</small></div>
         </div>
-        <div className="top-controls">
-          <label>院區 / Clinic<select value={clinic} onChange={e => setClinic(e.target.value)}>{clinics.map(c => <option key={c}>{c}</option>)}</select></label>
-          <label>日期 / Date<input type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
-          <label>搜尋 / Search<input value={query} onChange={e => setQuery(e.target.value)} placeholder="患者、任務、公告..." /></label>
-        </div>
+        <details className="filterPanel">
+          <summary>搜尋與篩選 / Filter</summary>
+          <div className="filterGrid">
+            <label>院區 / Clinic<select value={clinic} onChange={e => setClinic(e.target.value)}>{clinics.map(c => <option key={c}>{c}</option>)}</select></label>
+            <label>日期 / Date<input type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
+            <label>搜尋 / Search<input value={query} onChange={e => setQuery(e.target.value)} placeholder="患者、任務、公告..." /></label>
+          </div>
+        </details>
         <div className="userbox">
-          <strong>{profile.full_name}</strong>
-          <small>{roles[profile.role]}｜{profile.group_name || "未設定組別"}</small>
-          <small>{profile.email}｜預設院區 {profile.default_clinic || clinic}</small>
+          <div>
+            <strong>{profile.full_name}</strong>
+            <small>{roles[profile.role]}｜{profile.group_name || "未設定組別"}</small>
+            <small>{profile.email}｜預設院區 {profile.default_clinic || clinic}</small>
+          </div>
           <button onClick={signOut} className="textbtn">登出</button>
         </div>
       </header>
@@ -292,12 +323,12 @@ function App() {
       </aside>
 
       <section className="content">
-        {view === "dashboard" && <Dashboard patients={filteredPatients} tasks={filteredTasks} announcements={announcements} reads={reads} profile={profile} generateFake={generateFake} />}
+        {view === "dashboard" && <Dashboard patients={filteredPatients} tasks={sortedTasksForDashboard(filteredTasks)} allTasks={filteredTasks} announcements={announcements} reads={reads} profile={profile} taskViewMode={taskViewMode} setTaskViewMode={setTaskViewMode} />}
         {view === "flow" && <Flow patients={filteredPatients} nextStatus={nextStatus} />}
         {view === "patients" && <Patients patients={filteredPatients} />}
         {view === "tasks" && <Tasks tasks={filteredTasks} addTask={addTask} completeTask={completeTask} />}
         {view === "moduleMap" && <ModuleMap />}
-        {view === "staff" && <Staff staff={staff} profile={profile} updateRole={updateRole} />}
+        {view === "staff" && <Staff staff={staff} profile={profile} updateRole={updateRole} updateProfileField={updateProfileField} />}
         {view === "leave" && <Leave leave={leave} addLeave={addLeave} />}
         {view === "schedule" && <Schedule schedule={schedule} shiftSwaps={shiftSwaps} addShiftSwap={addShiftSwap} seedMonthSchedule={seedMonthSchedule} selectedMonth={selectedMonth} setSelectedMonth={setSelectedMonth} />}
         {view === "announcements" && <Announcements announcements={announcements} reads={reads} profile={profile} addAnnouncement={addAnnouncement} readAnnouncement={readAnnouncement} />}
@@ -331,42 +362,105 @@ function Login({ bootError, signIn }) {
 }
 function MenuGroup({ title, items, view, setView, can }) { return <details open><summary>{title}</summary>{items.map(([id,label]) => <button key={id} disabled={!can(id)} className={`nav ${view===id ? "active" : ""}`} onClick={() => setView(id)}>{label}</button>)}</details>; }
 function PageTitle({ title, desc, actions }) { return <div className="pageTitle"><div><h2>{title}</h2><p>{desc}</p></div><div className="actions">{actions}</div></div>; }
-function Dashboard({ patients, tasks, announcements, reads, profile }) {
+
+function Dashboard({ patients, tasks, allTasks, announcements, reads, profile, taskViewMode, setTaskViewMode }) {
   const high = tasks.filter(t => t.priority === "高" && t.status !== "已完成").length;
   const unread = announcements.filter(a => !reads.some(r => r.announcement_id === a.id && r.user_id === profile.id)).length;
+  const visiblePending = tasks.filter(t => t.status !== "已完成");
   return <>
-    <PageTitle title="工作指揮中心" desc="首頁只保留營運摘要、待辦與整併架構；假資料產生已移到 Demo 管理設定。" />
-    <div className="identityCard">
-      <div><span>目前登入者</span><strong>{profile.full_name}</strong></div>
-      <div><span>職稱角色</span><strong>{roles[profile.role]}</strong></div>
-      <div><span>所屬組別</span><strong>{profile.group_name || "待設定"}</strong></div>
-      <div><span>預設院區</span><strong>{profile.default_clinic || "台北"}</strong></div>
+    <PageTitle title="工作指揮中心" desc="首頁保留營運重點，不放測試工具與功能整併說明；依角色顯示個人組別或主管總覽。" />
+    <div className="compactMetrics">
+      <Metric title="今日假患者" value={patients.length}/>
+      <Metric title="待辦事項" value={visiblePending.length}/>
+      <Metric title="高優先" value={high} tone="red"/>
+      <Metric title="未簽收公告" value={unread} tone="yellow"/>
     </div>
-    <div className="grid four"><Metric title="今日假患者" value={patients.length}/><Metric title="待辦事項" value={tasks.length}/><Metric title="高優先" value={high} tone="red"/><Metric title="未簽收公告" value={unread} tone="yellow"/></div>
-    <div className="split"><Card title="今日必辦">{tasks.slice(0,8).map(t => <TaskLine key={t.id} task={t}/>)}{!tasks.length && <p className="muted">目前無待辦。請到「Demo 管理設定」產生雲端假資料。</p>}</Card><Card title="原系統功能整併摘要"><ModuleSummary compact /></Card></div>
-    <div className="card moduleBlock"><h3>舊系統功能整併方向</h3><ModuleSummary /></div>
+
+    <div className="dashboardGrid">
+      <Card title={isManagerRole(profile.role) ? "主管待辦總覽" : `${profile.group_name || "我的組別"}待辦`}>
+        {isManagerRole(profile.role) ? <GroupPendingOverview tasks={allTasks} /> : <PersonalGroupOverview tasks={visiblePending} profile={profile} />}
+      </Card>
+      <Card title="今日必辦">
+        <div className="miniToolbar">
+          <label>排序方式
+            <select value={taskViewMode} onChange={e => setTaskViewMode(e.target.value)}>
+              <option value="priority">依高中低優先</option>
+              <option value="status">依處理狀態</option>
+              <option value="group">依組別</option>
+            </select>
+          </label>
+        </div>
+        <CollapsibleTaskList tasks={visiblePending.slice(0, 12)} mode={taskViewMode} />
+        {!visiblePending.length && <p className="muted">目前無待辦。請到「Demo 管理設定」產生雲端假資料。</p>}
+      </Card>
+    </div>
   </>;
+}
+
+function GroupPendingOverview({ tasks }) {
+  const pending = tasks.filter(t => t.status !== "已完成");
+  const rows = groups.map(g => {
+    const list = pending.filter(t => t.group_name === g);
+    const high = list.filter(t => t.priority === "高").length;
+    return { group: g, count: list.length, high };
+  });
+  return <div className="groupOverview">
+    {rows.map(r => <div className="groupStat" key={r.group}>
+      <span>{r.group}</span>
+      <strong>{r.count}</strong>
+      <small>高優先 {r.high}</small>
+    </div>)}
+  </div>;
+}
+
+function PersonalGroupOverview({ tasks, profile }) {
+  const pending = tasks.filter(t => t.status !== "已完成");
+  const high = pending.filter(t => t.priority === "高").length;
+  return <div className="groupOverview">
+    <div className="groupStat"><span>所屬組別</span><strong>{profile.group_name || "待設定"}</strong><small>{roles[profile.role]}</small></div>
+    <div className="groupStat"><span>未完成</span><strong>{pending.length}</strong><small>本組或指派給我</small></div>
+    <div className="groupStat"><span>高優先</span><strong>{high}</strong><small>需先處理</small></div>
+  </div>;
+}
+
+function CollapsibleTaskList({ tasks, mode }) {
+  const grouped = {};
+  tasks.forEach(t => {
+    const key = mode === "priority" ? `${t.priority || "未分級"}優先` : mode === "status" ? (t.status || "未分狀態") : (t.group_name || "未分組");
+    grouped[key] = grouped[key] || [];
+    grouped[key].push(t);
+  });
+  const orderedKeys = Object.keys(grouped).sort((a,b)=>{
+    if (mode === "priority") return (priorityOrder[a.replace("優先","")] || 9) - (priorityOrder[b.replace("優先","")] || 9);
+    return a.localeCompare(b, "zh-Hant");
+  });
+  return <div className="accordionList">
+    {orderedKeys.map((key, idx) => <details key={key} open={idx===0}>
+      <summary>{key}<span>{grouped[key].length}</span></summary>
+      {grouped[key].map(t => <TaskLine key={t.id} task={t}/>)}
+    </details>)}
+  </div>;
 }
 
 function ModuleSummary({ compact=false }) {
   const items = compact ? legacyModules.slice(0,3) : legacyModules;
   return <div className="moduleGrid">
-    {items.map(m => <div className="moduleItem" key={m.title}>
-      <b>{m.title}</b>
+    {items.map(m => <details className="moduleItem" key={m.title}>
+      <summary>{m.title}</summary>
       <p>{m.purpose}</p>
       <small>原功能：{m.old.join("、")}</small>
       <em>新版承接：{m.next}</em>
-    </div>)}
+    </details>)}
   </div>;
 }
 function ModuleMap() {
   return <>
-    <PageTitle title="功能整併總覽" desc="依原系統模組重新歸類，避免功能遺漏，同時降低首頁與選單的認知負擔。" />
+    <PageTitle title="功能整併總覽" desc="依原系統模組重新歸類，避免功能遺漏；這些說明只放在行政營運，不出現在首頁。" />
     <div className="card moduleBlock"><ModuleSummary /></div>
     <div className="card"><h3>下一版待細化功能</h3><div className="moduleGrid">
-      <div className="moduleItem"><b>掛號預約</b><p>初診、複診、預約異動、取消原因、未預約報到。</p><em>建議放入：今日現場流程</em></div>
-      <div className="moduleItem"><b>居家與製衣工單</b><p>居家聯繫、保健衣、製衣、寄送、未完成事項可轉成同一張工單卡。</p><em>建議放入：個案照護流程</em></div>
-      <div className="moduleItem"><b>調班與代理</b><p>月排班、三個月請假卡位、調班申請、代理同意與主管核准需串在一起。</p><em>建議放入：行政營運流程</em></div>
+      <details className="moduleItem"><summary>掛號預約</summary><p>初診、複診、預約異動、取消原因、未預約報到。</p><em>建議放入：今日現場流程</em></details>
+      <details className="moduleItem"><summary>居家與製衣工單</summary><p>居家聯繫、保健衣、製衣、寄送、未完成事項可轉成同一張工單卡。</p><em>建議放入：個案照護流程</em></details>
+      <details className="moduleItem"><summary>調班與代理</summary><p>月排班、三個月請假卡位、調班申請、代理同意與主管核准需串在一起。</p><em>建議放入：行政營運流程</em></details>
     </div></div>
   </>;
 }
@@ -375,7 +469,26 @@ function Metric({ title, value, tone }) { return <div className={`metric ${tone 
 function Flow({ patients, nextStatus }) { return <><PageTitle title="今日流程看板" desc="用狀態流轉模擬報到、看診、治療、檢查、拿藥、居家諮詢到完診。" /><div className="kanban">{statuses.map(s => <div className="lane" key={s}><h3>{s}<span>{patients.filter(p => p.current_status === s).length}</span></h3>{patients.filter(p => p.current_status === s).map(p => <div className="pCard" key={p.id}><b>{p.name}</b><small>{p.chart_no}｜{p.disease}｜座號 {p.seat_no}</small><button className="secondary" onClick={() => nextStatus(p)}>下一步</button></div>)}</div>)}</div></>; }
 function Patients({ patients }) { return <><PageTitle title="患者主檔欄位展示" desc="僅使用系統產生的假資料，用來測試欄位與流程。" /><DataTable headers={["病歷號","姓名","性別","年齡","電話遮罩","疾病別","狀態","居家","製衣","風險"]} rows={patients.map(p => [p.chart_no,p.name,p.gender,p.age,maskPhone(p.phone_masked),p.disease,p.current_status,p.home_status,p.garment_status,badge(p.risk_level,p.risk_level==="一般"?"green":"red")])}/></>; }
 function Tasks({ tasks, addTask, completeTask }) { return <><PageTitle title="任務中心" desc="照會、交接、關懷、列管、製衣、寄送等統一任務化。" actions={<button className="primary" onClick={addTask}>新增雲端假任務</button>} /><DataTable headers={["優先","任務","類型","組別","狀態","到期日","操作"]} rows={tasks.map(t => [badge(t.priority,t.priority==="高"?"red":t.priority==="中"?"yellow":"gray"),t.title,t.task_type,t.group_name,t.status,t.due_date,<button className="secondary" onClick={() => completeTask(t)}>完成</button>])}/></>; }
-function Staff({ staff, profile, updateRole }) { return <><PageTitle title="人員與權限管理" desc="真 Google 帳號登入後自動建立人員檔；最高管理員可調整角色。" /><DataTable headers={["姓名","Email","角色","組別","預設院區","狀態","角色調整"]} rows={staff.map(s => [s.full_name,s.email,roles[s.role]||s.role,s.group_name,s.default_clinic,s.status, profile.role==="super_admin" ? <select value={s.role} onChange={e => updateRole(s.id,e.target.value)}>{Object.keys(roles).map(r => <option key={r} value={r}>{roles[r]}</option>)}</select> : "僅管理員"])} /></>; }
+
+function Staff({ staff, profile, updateRole, updateProfileField }) {
+  const canEdit = profile.role === "super_admin" || profile.role === "clinic_manager";
+  return <>
+    <PageTitle title="人員與權限管理" desc="真 Google 帳號登入後自動建立人員檔；主管可調整角色、組別與預設院區。" />
+    <DataTable headers={["姓名","Email","角色","組別","預設院區","狀態","權限設定"]} rows={staff.map(s => [
+      s.full_name,
+      s.email,
+      canEdit ? <select value={s.role} onChange={e => updateRole(s.id,e.target.value)}>{Object.keys(roles).map(r => <option key={r} value={r}>{roles[r]}</option>)}</select> : (roles[s.role]||s.role),
+      canEdit ? <select value={s.group_name || "待設定"} onChange={e => updateProfileField(s.id,"group_name",e.target.value)}>
+        <option value="待設定">待設定</option>{groups.map(g => <option key={g} value={g}>{g}</option>)}
+      </select> : (s.group_name || "待設定"),
+      canEdit ? <select value={s.default_clinic || "台北"} onChange={e => updateProfileField(s.id,"default_clinic",e.target.value)}>
+        {clinics.map(c => <option key={c} value={c}>{c}</option>)}
+      </select> : (s.default_clinic || "台北"),
+      s.status,
+      canEdit ? "可調整" : "僅檢視"
+    ])} />
+  </>;
+}
 function Leave({ leave, addLeave }) { return <><PageTitle title="請假與代理" desc="可預先建立未來三個月內的假單卡位；正式版再加入代理人同意與主管核准。" actions={<><button className="secondary" onClick={() => addLeave(0)}>本月卡位</button><button className="secondary" onClick={() => addLeave(1)}>下月卡位</button><button className="secondary" onClick={() => addLeave(2)}>二個月後</button><button className="primary" onClick={() => addLeave(3)}>三個月後</button></>} /><DataTable headers={["申請人","假別","期間","月份","代理人","代理狀態","審核狀態","進度"]} rows={leave.map(l => [l.applicant_name,l.leave_type,l.period_text,l.month_key,l.delegate_name,l.delegate_status,l.approval_status,progress(l.progress)])}/></>; }
 function Schedule({ schedule, shiftSwaps, addShiftSwap, seedMonthSchedule, selectedMonth, setSelectedMonth }) {
   const totals = {}; schedule.forEach(s => totals[s.staff_name] = (totals[s.staff_name] || 0) + Number(s.hours || 0));
