@@ -1,8 +1,8 @@
 {
-  "name": "nrs-clinic-ops-demo-v8-dashboard-rbac",
-  "version": "8.0.0",
+  "name": "nrs-clinic-ops-demo-v9-ops-complete",
+  "version": "9.0.0",
   "private": true,
-  "description": "NRS clinic demo V8 with compact mobile dashboard, collapsible filters, group-aware task board, staff group editing and refined module consolidation.",
+  "description": "NRS clinic demo V9 with compact homepage, announcements, limited lists, flow details, patient management, demo staff, and audit filters.",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
