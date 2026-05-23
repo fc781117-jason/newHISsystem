@@ -75,3 +75,47 @@ td select{width:100%;min-width:150px;border:1px solid #d0d5dd;border-radius:10px
 .dashboardGrid{grid-template-columns:1fr 1.1fr 1fr;align-items:start}.noticeItem{background:#f8fafc;border:1px solid #e5e7eb;border-radius:14px;padding:10px;margin-bottom:8px;display:grid;gap:4px}.noticeItem b{font-size:14px}.noticeItem small{color:#667085}.compactDetails{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:10px;margin-top:10px}.compactDetails summary,.innerDetails summary{cursor:pointer;font-weight:900;color:#1d4ed8}.innerDetails{background:#f8fafc;border:1px solid #e5e7eb;border-radius:14px;padding:8px;margin-top:8px}.pCard{display:grid;gap:8px}.cardOpen{border:none;background:transparent;text-align:left;padding:0;cursor:pointer;color:inherit}.cardOpen:hover b{text-decoration:underline}.cardActions{display:flex;gap:8px}.modalBackdrop{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:10000;display:grid;place-items:center;padding:16px}.modalCard{background:white;border-radius:24px;max-width:860px;max-height:88vh;overflow:auto;width:min(920px,96vw);padding:20px;box-shadow:0 30px 100px rgba(0,0,0,.3)}.modalHead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;border-bottom:1px solid #e5e7eb;padding-bottom:10px;margin-bottom:12px}.patientSections details,.moduleItem{background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:12px;margin-bottom:10px}.patientSections summary,.moduleItem summary{font-weight:900;cursor:pointer}.fieldGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:10px}.field{background:white;border:1px solid #e5e7eb;border-radius:12px;padding:10px;display:grid;gap:4px}.field span{font-size:12px;color:#667085;font-weight:800}.field strong{font-size:14px}.moduleActions,.quickActions{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.quickActions{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:12px}.moduleGrid{display:grid;gap:10px}.formGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:12px}.formGrid label{display:grid;gap:6px;font-size:12px;font-weight:900;color:#475569}.formGrid input,.formGrid select,.formGrid textarea,.cellInput{width:100%;border:1px solid #d0d5dd;border-radius:12px;padding:9px 10px;background:white}.formGrid textarea{min-height:92px;resize:vertical}.wideField{grid-column:1/-1}.checkRow{display:flex!important;align-items:center;gap:8px}.checkRow input{width:auto}.auditFilters{margin-bottom:12px}.compactMetrics .metric span{white-space:nowrap}.accordionList .taskLine:nth-of-type(n+4){display:block}
 @media(max-width:1200px){.dashboardGrid{grid-template-columns:1fr 1fr}.dashboardGrid .card:last-child{grid-column:1/-1}}
 @media(max-width:720px){.dashboardGrid{grid-template-columns:1fr}.fieldGrid,.formGrid{grid-template-columns:1fr}.modalCard{padding:14px;border-radius:18px}.modalHead h3{font-size:17px}.quickActions .secondary{flex:1 1 calc(50% - 8px)}.cardActions .secondary{width:100%}.compactMetrics{grid-template-columns:repeat(2,minmax(0,1fr))}.compactMetrics .metric{min-height:70px}.compactMetrics .metric strong{font-size:24px}.dashboardGrid .card{padding:14px}.lane .pCard{padding:10px}.moduleActions button{flex:1 1 calc(50% - 8px)}}
+
+
+/* ===== V10 polish: announcement signoff, closed task groups, clearer lanes, title/version ===== */
+.brand strong{letter-spacing:.2px}
+.versionBadge{display:inline-flex;align-items:center;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-weight:900;font-size:11px;padding:2px 7px;margin-right:4px}
+.noticeFold,.taskFold{background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:10px 12px;margin-bottom:10px}
+.noticeFold summary,.taskFold summary,.compactDetails summary,.innerDetails summary{cursor:pointer;display:flex;align-items:center;gap:8px;font-weight:900;list-style:none}
+.noticeFold summary::-webkit-details-marker,.taskFold summary::-webkit-details-marker,.compactDetails summary::-webkit-details-marker,.innerDetails summary::-webkit-details-marker{display:none}
+.noticeFold summary::before,.taskFold summary::before,.compactDetails summary::before,.innerDetails summary::before{content:"▶";color:#1d4ed8;font-size:12px;transition:.16s}
+.noticeFold[open] summary::before,.taskFold[open] summary::before,.compactDetails[open] summary::before,.innerDetails[open] summary::before{transform:rotate(90deg)}
+.noticeFold p{white-space:pre-wrap;line-height:1.65;margin:10px 0;color:#334155;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:10px}
+.announcementPreview .compactDetails{margin-top:8px}
+.accordionList details{background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:10px 12px;margin-bottom:10px}
+.accordionList details summary{justify-content:space-between}
+.accordionList details summary span{margin-left:auto;background:#e0e7ff;color:#1e40af;border-radius:999px;padding:2px 8px;font-size:12px}
+.lane{border:2px solid #cbd5e1;box-shadow:0 8px 24px rgba(15,23,42,.05)}
+.lane h3{background:#eef2ff;border:1px solid #dbeafe;border-radius:14px;padding:10px;color:#1e3a8a}
+.pCard{border:1px solid #d1d5db}
+.tapHint{display:inline-flex;margin-top:7px;color:#1d4ed8;font-size:12px;font-style:normal;font-weight:800}
+.cardOpen:hover .tapHint{text-decoration:underline}
+.toast{max-width:min(680px,calc(100vw - 40px));line-height:1.45}
+
+@media(max-width:640px){
+  .noticeFold,.taskFold{padding:9px 10px}
+  .lane{border-radius:18px}
+  .lane h3{font-size:14px}
+  .tapHint{font-size:11px}
+}
+
+
+/* ===== V11 patient workflow forms ===== */
+.patientForm{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:end}
+.patientForm label{display:grid;gap:6px;font-size:12px;font-weight:900;color:#475569}
+.patientForm input,.patientForm select,.patientForm textarea,.wideText{width:100%;border:1px solid #d0d5dd;border-radius:12px;padding:10px;background:white}
+.patientForm textarea,.wideText{min-height:92px;resize:vertical}
+.wideField{grid-column:1/-1}
+.wideModal{max-width:980px}
+.innerCard{margin-top:12px}
+.eventTimeline{display:grid;gap:10px}
+.eventItem{background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:12px}
+.eventItem b{display:block;margin:6px 0}
+.eventItem small{display:block;color:#667085}
+.eventItem p{white-space:pre-wrap;margin:8px 0 0;line-height:1.55}
+@media(max-width:850px){.patientForm{grid-template-columns:1fr}}

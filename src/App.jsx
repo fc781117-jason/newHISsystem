@@ -80,7 +80,7 @@ function App() {
     if (!profile) return;
     setClinic(profile.default_clinic || "台北");
     loadAll();
-    const channel = supabase.channel("nrs-demo-v9-realtime")
+    const channel = supabase.channel("new-his-demo-v10-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "patients_mock" }, loadAll)
       .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, loadAll)
       .on("postgres_changes", { event: "*", schema: "public", table: "announcements" }, loadAll)
@@ -142,7 +142,8 @@ function App() {
     ]);
     const [p,t,s,ds,a,r,au,l,sc,sw,ai] = res;
     if (p.error) setBootError(p.error.message);
-    setPatients(p.data || []); setTasks(t.data || []); setStaff(s.data || []); setDemoStaff(ds.data || []);
+    if (ds.error) console.warn("demo_staff table not ready. Please run supabase/v10_patch.sql", ds.error.message);
+    setPatients(p.data || []); setTasks(t.data || []); setStaff(s.data || []); setDemoStaff(ds.error ? [] : (ds.data || []));
     setAnnouncements(a.data || []); setReads(r.data || []); setAudit(au.data || []); setLeave(l.data || []);
     setSchedule(sc.data || []); setShiftSwaps(sw.data || []); setAiLogs(ai.data || []);
   }
@@ -228,7 +229,16 @@ function App() {
     const rows = demoStaffSeed.flatMap(([groupName, title, role, names]) => names.map(name => ({ full_name: name, title, role, group_name: groupName, default_clinic: clinic, status: "active" })));
     await supabase.from("demo_staff").delete().neq("id", "00000000-0000-0000-0000-000000000000");
     const { error } = await supabase.from("demo_staff").insert(rows);
-    if (error) flash(error.message); else flash("已建立各組虛擬員工");
+    if (error) {
+      const msg = String(error.message || "");
+      if (msg.includes("demo_staff") || msg.includes("schema cache")) {
+        flash("尚未建立 demo_staff 資料表，請先到 Supabase 執行 supabase/v10_patch.sql");
+      } else {
+        flash(msg);
+      }
+    } else {
+      flash("已建立各組虛擬員工");
+    }
     await logAudit("建立虛擬員工", "Staff", "demo_staff", `${rows.length} 筆`); loadAll();
   }
   async function updateDemoStaff(id, field, value) { await supabase.from("demo_staff").update({ [field]: value }).eq("id", id); await logAudit("調整虛擬員工", "Staff", "demo_staff", `${field} -> ${value}`); loadAll(); }
@@ -250,7 +260,7 @@ function App() {
     <div className="watermark" />{toast && <div className="toast">{toast}</div>}
     {selectedPatient && <PatientModal patient={selectedPatient} onClose={() => setSelectedPatient(null)} nextStatus={nextStatus} />}
     <header className="topbar">
-      <div className="brand"><button className="icon" onClick={() => setMobileOpen(!mobileOpen)}>☰</button><div><strong>{APP_TITLE}</strong><small>雲端多人互動 Demo｜Google + Supabase + OpenAI Edge Function</small></div></div>
+      <div className="brand"><button className="icon" onClick={() => setMobileOpen(!mobileOpen)}>☰</button><div><strong>{APP_TITLE}</strong><small><span className="versionBadge">V10</span> 雲端多人互動 Demo｜Google + Supabase + OpenAI Edge Function</small></div></div>
       <details className="filterPanel"><summary>搜尋與篩選 / Filter</summary><div className="filterGrid"><label>院區 / Clinic<select value={clinic} onChange={e => setClinic(e.target.value)}>{clinics.map(c => <option key={c}>{c}</option>)}</select></label><label>日期 / Date<input type="date" value={date} onChange={e => setDate(e.target.value)} /></label><label>搜尋 / Search<input value={query} onChange={e => setQuery(e.target.value)} placeholder="患者、任務、公告..." /></label></div></details>
       <div className="userbox"><div><strong>{profile.full_name}</strong><small>{roles[profile.role]}｜{profile.group_name || "未設定組別"}</small><small>{profile.email}｜預設院區 {profile.default_clinic || clinic}</small></div><button onClick={signOut} className="textbtn">登出</button></div>
     </header>
@@ -260,7 +270,7 @@ function App() {
       <MenuGroup title="行政營運 / Admin" items={[["moduleMap","功能整併總覽"],["staff","人員與權限"],["leave","請假與代理"],["schedule","月排班與調班"],["announcements","公告與簽收"],["audit","數位足跡稽核"],["settings","Demo 管理設定"]]} view={view} setView={setAuthorizedView} can={can}/>
     </aside>
     <section className="content">
-      {view === "dashboard" && <Dashboard patients={filteredPatients} tasks={sortedTasksForDashboard(filteredTasks)} allTasks={filteredTasks} announcements={announcements} reads={reads} profile={profile} taskViewMode={taskViewMode} setTaskViewMode={setTaskViewMode} />}
+      {view === "dashboard" && <Dashboard patients={filteredPatients} tasks={sortedTasksForDashboard(filteredTasks)} allTasks={filteredTasks} announcements={announcements} reads={reads} profile={profile} taskViewMode={taskViewMode} setTaskViewMode={setTaskViewMode} readAnnouncement={readAnnouncement} />}
       {view === "flow" && <Flow patients={filteredPatients} nextStatus={nextStatus} openPatient={setSelectedPatient} />}
       {view === "patients" && <Patients patients={filteredPatients} addOnePatient={addOnePatient} openPatient={setSelectedPatient} />}
       {view === "tasks" && <Tasks tasks={filteredTasks} addTask={addTask} completeTask={completeTask} />}
@@ -275,7 +285,14 @@ function App() {
     </section>
   </main>;
 
-  function setAuthorizedView(target) { if (!can(target)) { flash("此角色目前無權限開啟此模組"); return; } setView(target); setMobileOpen(false); logAudit("開啟模組", "Navigation", target, ""); }
+  function setAuthorizedView(target) {
+    if (!can(target)) { flash("此角色目前無權限開啟此模組"); return; }
+    setView(target);
+    setMobileOpen(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    document.querySelector(".content")?.scrollTo?.({ top: 0, behavior: "smooth" });
+    logAudit("開啟模組", "Navigation", target, "");
+  }
 }
 
 function ConfigMissing() { return <div className="loginPage"><div className="loginCard"><h1>尚未設定 Supabase 環境變數</h1><p>請依照 <code>.env.example</code> 建立 <code>.env.local</code>，並設定 VITE_SUPABASE_URL 與 VITE_SUPABASE_ANON_KEY。</p></div></div>; }
@@ -285,7 +302,7 @@ function PageTitle({ title, desc, actions }) { return <div className="pageTitle"
 function Card({ title, children }) { return <div className="card"><h3>{title}</h3>{children}</div>; }
 function Metric({ title, value, tone }) { return <div className={`metric ${tone || ""}`}><span>{title}</span><strong>{value}</strong></div>; }
 
-function Dashboard({ patients, tasks, allTasks, announcements, reads, profile, taskViewMode, setTaskViewMode }) {
+function Dashboard({ patients, tasks, allTasks, announcements, reads, profile, taskViewMode, setTaskViewMode, readAnnouncement }) {
   const high = tasks.filter(t => t.priority === "高" && t.status !== "已完成").length;
   const unreadList = announcements.filter(a => !reads.some(r => r.announcement_id === a.id && r.user_id === profile.id));
   const visiblePending = tasks.filter(t => t.status !== "已完成");
@@ -294,14 +311,22 @@ function Dashboard({ patients, tasks, allTasks, announcements, reads, profile, t
     <div className="dashboardGrid">
       <Card title={isManagerRole(profile.role) ? "主管待辦總覽" : `${profile.group_name || "我的組別"}待辦`}>{isManagerRole(profile.role) ? <GroupPendingOverview tasks={allTasks} /> : <PersonalGroupOverview tasks={visiblePending} profile={profile} />}</Card>
       <Card title="今日必辦"><div className="miniToolbar"><label>排序方式<select value={taskViewMode} onChange={e => setTaskViewMode(e.target.value)}><option value="priority">依高中低優先</option><option value="status">依處理狀態</option><option value="group">依組別</option></select></label></div><CollapsibleTaskList tasks={visiblePending} mode={taskViewMode} limit={2} />{!visiblePending.length && <p className="muted">目前無待辦。請到「Demo 管理設定」產生示範資料。</p>}</Card>
-      <Card title="公告提醒"><AnnouncementPreview announcements={unreadList} reads={reads} profile={profile} /></Card>
+      <Card title="公告提醒"><AnnouncementPreview announcements={unreadList} reads={reads} profile={profile} readAnnouncement={readAnnouncement} /></Card>
     </div>
   </>;
 }
-function AnnouncementPreview({ announcements }) {
+function AnnouncementPreview({ announcements, readAnnouncement }) {
   if (!announcements.length) return <p className="muted">目前沒有未簽收公告。可至「行政營運 → 公告與簽收」建立院區公告、組別公告或總公司公告。</p>;
   const first = announcements.slice(0,2), rest = announcements.slice(2);
-  return <div>{first.map(a => <div className="noticeItem" key={a.id}><span className="badge yellow">{a.scope}</span><b>{a.title}</b><small>{String(a.content||"").slice(0,60)}</small></div>)}{rest.length>0 && <details className="compactDetails"><summary>展開其餘 {rest.length} 則公告</summary>{rest.map(a => <div className="noticeItem" key={a.id}><span className="badge yellow">{a.scope}</span><b>{a.title}</b><small>{String(a.content||"").slice(0,60)}</small></div>)}</details>}</div>;
+  const item = (a) => <details className="noticeFold" key={a.id}>
+    <summary><span className="badge yellow">{a.scope}</span><b>{a.title}</b></summary>
+    <p>{a.content || "公告內容待補充。"}</p>
+    <button className="secondary" onClick={() => readAnnouncement(a)}>我已閱讀並簽收</button>
+  </details>;
+  return <div className="announcementPreview">
+    {first.map(item)}
+    {rest.length > 0 && <details className="compactDetails"><summary>展開其餘 {rest.length} 則公告</summary>{rest.map(item)}</details>}
+  </div>;
 }
 function GroupPendingOverview({ tasks }) {
   const pending = tasks.filter(t => t.status !== "已完成");
@@ -311,12 +336,24 @@ function GroupPendingOverview({ tasks }) {
   return <><div className="groupOverview">{first.map(render)}</div>{rest.length>0 && <details className="compactDetails"><summary>展開其他組別</summary><div className="groupOverview">{rest.map(render)}</div></details>}</>;
 }
 function PersonalGroupOverview({ tasks, profile }) { const pending = tasks.filter(t => t.status !== "已完成"); const high = pending.filter(t => t.priority === "高").length; return <div className="groupOverview"><div className="groupStat"><span>所屬組別</span><strong>{profile.group_name || "待設定"}</strong><small>{roles[profile.role]}</small></div><div className="groupStat"><span>未完成</span><strong>{pending.length}</strong><small>本組或指派給我</small></div><div className="groupStat"><span>高優先</span><strong>{high}</strong><small>需先處理</small></div></div>; }
-function CollapsibleTaskList({ tasks, mode, limit=2 }) { const grouped={}; tasks.forEach(t=>{ const key = mode === "priority" ? `${t.priority || "未分級"}優先` : mode === "status" ? (t.status || "未分狀態") : (t.group_name || "未分組"); grouped[key]=grouped[key]||[]; grouped[key].push(t); }); const keys=Object.keys(grouped).sort((a,b)=> mode === "priority" ? (priorityOrder[a.replace("優先","")] || 9) - (priorityOrder[b.replace("優先","")] || 9) : a.localeCompare(b,"zh-Hant")); return <div className="accordionList">{keys.map((key, idx)=>{ const list=grouped[key]; const first=list.slice(0,limit); const rest=list.slice(limit); return <details key={key} open={idx===0}><summary>{key}<span>{list.length}</span></summary>{first.map(t=><TaskLine key={t.id} task={t}/>)}{rest.length>0 && <details className="innerDetails"><summary>展開剩餘 {rest.length} 筆</summary>{rest.map(t=><TaskLine key={t.id} task={t}/>)}</details>}</details>})}</div>; }
+function CollapsibleTaskList({ tasks, mode, limit=2 }) {
+  const grouped = {};
+  tasks.forEach(t => {
+    const key = mode === "priority" ? `${t.priority || "未分級"}優先` : mode === "status" ? (t.status || "未分狀態") : (t.group_name || "未分組");
+    grouped[key] = grouped[key] || [];
+    grouped[key].push(t);
+  });
+  const keys = Object.keys(grouped).sort((a,b)=> mode === "priority" ? (priorityOrder[a.replace("優先","")] || 9) - (priorityOrder[b.replace("優先","")] || 9) : a.localeCompare(b,"zh-Hant"));
+  return <div className="accordionList">{keys.map((key)=>{
+    const list=grouped[key]; const first=list.slice(0,limit); const rest=list.slice(limit);
+    return <details key={key} className="taskFold"><summary>{key}<span>{list.length}</span></summary>{first.map(t=><TaskLine key={t.id} task={t}/>)}{rest.length>0 && <details className="innerDetails"><summary>展開剩餘 {rest.length} 筆</summary>{rest.map(t=><TaskLine key={t.id} task={t}/>)}</details>}</details>
+  })}</div>;
+}
 function TaskLine({ task }) { return <div className="taskLine"><span className={`badge ${task.priority==="高"?"red":task.priority==="中"?"yellow":"gray"}`}>{task.priority}</span><b>{task.title}</b><small>{task.group_name}｜{task.status}</small></div>; }
 
 function Flow({ patients, nextStatus, openPatient }) { return <><PageTitle title="今日流程看板" desc="每個流程只顯示前兩位，其餘折疊；「完成本站 → 下一步」代表該站人員完成處理後推進流程狀態。" /><div className="kanban">{statuses.map(s => <PatientLane key={s} status={s} patients={patients.filter(p=>p.current_status===s)} nextStatus={nextStatus} openPatient={openPatient}/>)}</div></>; }
 function PatientLane({ status, patients, nextStatus, openPatient }) { const first=patients.slice(0,2), rest=patients.slice(2); const card=p=><PatientCard key={p.id} p={p} nextStatus={nextStatus} openPatient={openPatient}/>; return <div className="lane"><h3>{status}<span>{patients.length}</span></h3>{first.map(card)}{rest.length>0 && <details className="innerDetails"><summary>展開其餘 {rest.length} 人</summary>{rest.map(card)}</details>}</div>; }
-function PatientCard({ p, nextStatus, openPatient }) { return <div className="pCard"><button className="cardOpen" onClick={()=>openPatient(p)}><b>{p.name}</b><small>{p.chart_no}｜{p.disease}｜座號 {p.seat_no}</small></button><div className="cardActions"><button className="secondary" title="各站人員完成本站工作後，手動推進到下一個流程狀態。" onClick={() => nextStatus(p)}>完成本站 → 下一步</button></div></div>; }
+function PatientCard({ p, nextStatus, openPatient }) { return <div className="pCard"><button className="cardOpen" onClick={()=>openPatient(p)}><b>{p.name}</b><small>{p.chart_no}｜{p.disease}｜座號 {p.seat_no}</small><em className="tapHint">點擊查看掛號詳細資料</em></button><div className="cardActions"><button className="secondary" title="各站人員完成本站工作後，手動推進到下一個流程狀態。" onClick={() => nextStatus(p)}>完成本站 → 下一步</button></div></div>; }
 function PatientModal({ patient, onClose, nextStatus }) { return <div className="modalBackdrop" onClick={onClose}><div className="modalCard" onClick={e=>e.stopPropagation()}><div className="modalHead"><h3>{patient.name}｜{patient.chart_no}</h3><button className="textbtn" onClick={onClose}>關閉</button></div><div className="patientSections">{patientFieldGroups.map(g=><details key={g.title} open><summary>{g.title}</summary><div className="fieldGrid">{g.fields.map(f=><div className="field" key={f}><span>{fieldLabel[f]||f}</span><strong>{String(patient[f] ?? "-")}</strong></div>)}</div></details>)}</div><div className="moduleActions"><button className="secondary">初診建檔</button><button className="secondary">複診登記</button><button className="secondary">客服關懷</button><button className="secondary">居家諮詢</button><button className="secondary">列管事項</button><button className="primary" onClick={()=>nextStatus(patient)}>完成本站 → 下一步</button></div><p className="muted">以上為示範欄位與入口，後續可依原系統細化成正式表單。</p></div></div>; }
 
 function Patients({ patients, addOnePatient, openPatient }) { return <><PageTitle title="患者管理" desc="整併新增個案、個案查詢、初診、複診、列管、客服關懷與現場流程入口。" actions={<button className="primary" onClick={addOnePatient}>新增示範患者</button>} /><div className="quickActions"><button className="secondary">新增個案</button><button className="secondary">初診建檔</button><button className="secondary">複診登記</button><button className="secondary">個案資訊查詢</button><button className="secondary">列管事項</button><button className="secondary">客服關懷</button></div><DataTable headers={["病歷號","姓名","性別","年齡","電話遮罩","疾病別","狀態","居家","製衣","操作"]} rows={patients.map(p => [p.chart_no,p.name,p.gender,p.age,maskPhone(p.phone_masked),p.disease,p.current_status,p.home_status,p.garment_status,<button className="secondary" onClick={()=>openPatient(p)}>查看檔案</button>])}/><div className="card"><h3>欄位分層</h3><ModuleSummary compact /></div></>; }

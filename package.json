@@ -1,8 +1,8 @@
 {
-  "name": "nrs-clinic-ops-demo-v9-ops-complete",
-  "version": "9.0.0",
+  "name": "new-his-demo-v11-patient-workflow",
+  "version": "11.0.0",
   "private": true,
-  "description": "NRS clinic demo V9 with compact homepage, announcements, limited lists, flow details, patient management, demo staff, and audit filters.",
+  "description": "NEW HIS system clinic operations demo V11 with actionable patient management forms, first/revisit registration, care records and patient event history.",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
