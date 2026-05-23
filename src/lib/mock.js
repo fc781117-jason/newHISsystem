@@ -14,16 +14,16 @@ export const roles = {
 };
 
 export const rolePerms = {
-  super_admin: ["dashboard","flow","patients","tasks","staff","leave","schedule","announcements","audit","settings","ai"],
-  clinic_manager: ["dashboard","flow","patients","tasks","staff","leave","schedule","announcements","audit","ai"],
-  doctor: ["dashboard","flow","patients","tasks","announcements","ai"],
-  therapist: ["dashboard","flow","patients","tasks","leave","schedule","announcements","ai"],
-  health_manager: ["dashboard","flow","patients","tasks","leave","schedule","announcements","ai"],
-  frontdesk: ["dashboard","flow","patients","tasks","leave","schedule","announcements"],
-  customer_service: ["dashboard","patients","tasks","announcements","ai"],
-  pharmacy: ["dashboard","flow","tasks","announcements"],
-  garment_staff: ["dashboard","tasks","announcements"],
-  auditor: ["dashboard","audit","announcements"]
+  super_admin: ["dashboard","flow","patients","tasks","moduleMap","staff","leave","schedule","announcements","audit","settings","ai"],
+  clinic_manager: ["dashboard","flow","patients","tasks","moduleMap","staff","leave","schedule","announcements","audit","ai"],
+  doctor: ["dashboard","flow","patients","tasks","moduleMap","announcements","ai"],
+  therapist: ["dashboard","flow","patients","tasks","moduleMap","leave","schedule","announcements","ai"],
+  health_manager: ["dashboard","flow","patients","tasks","moduleMap","leave","schedule","announcements","ai"],
+  frontdesk: ["dashboard","flow","patients","tasks","moduleMap","leave","schedule","announcements"],
+  customer_service: ["dashboard","patients","tasks","moduleMap","announcements","ai"],
+  pharmacy: ["dashboard","flow","tasks","moduleMap","announcements"],
+  garment_staff: ["dashboard","tasks","moduleMap","announcements"],
+  auditor: ["dashboard","moduleMap","audit","announcements"]
 };
 
 export const statuses = ["已報到", "等待看診", "等待治療", "治療中", "等待檢查", "等待拿藥", "等待居家諮詢", "已完診"];

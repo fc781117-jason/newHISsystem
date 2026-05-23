@@ -1,6 +1,6 @@
--- NRS Demo V6 Supabase Schema
+-- NRS Demo V7 Supabase Schema
 -- 目的：建立多人雲端互動 Demo。所有患者資料皆為假資料，不可匯入真實病患資料。
--- V6 新增：OpenAI 使用紀錄、月排班與三個月預先請假卡位欄位。
+-- V6/V7 新增：OpenAI 使用紀錄、月排班與三個月預先請假卡位欄位。
 
 create extension if not exists "pgcrypto";
 
@@ -124,6 +124,23 @@ create table if not exists public.schedules (
   created_at timestamptz default now()
 );
 
+
+
+create table if not exists public.shift_swap_requests (
+  id uuid primary key default gen_random_uuid(),
+  requester_id uuid references auth.users(id),
+  requester_name text,
+  target_name text,
+  request_date date,
+  original_shift text,
+  requested_shift text,
+  reason text,
+  status text default '待對方同意',
+  clinic text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
 create table if not exists public.ai_usage_logs (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references auth.users(id),
@@ -177,6 +194,7 @@ alter table public.announcement_reads enable row level security;
 alter table public.leave_requests enable row level security;
 alter table public.delegations enable row level security;
 alter table public.schedules enable row level security;
+alter table public.shift_swap_requests enable row level security;
 alter table public.ai_usage_logs enable row level security;
 alter table public.audit_logs enable row level security;
 
@@ -209,6 +227,11 @@ create policy "delegations_all_authenticated" on public.delegations for all to a
 
 drop policy if exists "schedules_all_authenticated" on public.schedules;
 create policy "schedules_all_authenticated" on public.schedules for all to authenticated using (true) with check (true);
+
+
+
+drop policy if exists "shift_swap_requests_all_authenticated" on public.shift_swap_requests;
+create policy "shift_swap_requests_all_authenticated" on public.shift_swap_requests for all to authenticated using (true) with check (true);
 
 drop policy if exists "ai_usage_logs_all_authenticated" on public.ai_usage_logs;
 create policy "ai_usage_logs_all_authenticated" on public.ai_usage_logs for all to authenticated using (true) with check (true);

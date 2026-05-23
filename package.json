@@ -1,8 +1,8 @@
 {
-  "name": "nrs-clinic-ops-demo-v6-ai-schedule",
-  "version": "6.0.0",
+  "name": "nrs-clinic-ops-demo-v7-mobile-ops",
+  "version": "7.0.0",
   "private": true,
-  "description": "NRS clinic operations workflow integration demo with Google Auth, Supabase cloud database, OpenAI Edge Function, monthly scheduling and 3-month leave blocking. Mock data only.",
+  "description": "NRS clinic operations workflow integration demo V7 with mobile-first UI, module map, shift swap requests, OpenAI, Google Auth and Supabase cloud database. Mock data only.",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
