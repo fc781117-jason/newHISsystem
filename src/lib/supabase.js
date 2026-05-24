@@ -16,4 +16,4 @@ export const supabase = isConfigured
   : null;
 
 export const ADMIN_EMAIL = (import.meta.env.VITE_APP_ADMIN_EMAIL || "fc781117@gmail.com").toLowerCase();
-export const APP_TITLE = import.meta.env.VITE_APP_TITLE || "NEW HIS系統-診所營運流程整合系統 Demo V11";
+export const APP_TITLE = import.meta.env.VITE_APP_TITLE || "NEW HIS系統-診所營運流程整合系統 Demo V14";
