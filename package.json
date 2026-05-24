@@ -1,8 +1,8 @@
 {
-  "name": "new-his-demo-v14-integrated",
-  "version": "14.0.0",
+  "name": "new-his-demo-v15-workflow-roster",
+  "version": "15.0.0",
   "private": true,
-  "description": "NEW HIS system clinic operations integrated demo V14: registration, patient workflow, care/work orders, HR/admin, reports, Supabase, Google Auth, OpenAI.",
+  "description": "NEW HIS demo V15: login clinic gate, task filters, leave/delegation approval flow, roster grid schedule and information disclosure optimization.",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",

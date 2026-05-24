@@ -45,6 +45,7 @@ function App() {
   const [clinic, setClinic] = useState("台北");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [selectedMonth, setSelectedMonth] = useState(monthKey());
+  const [workClinicConfirmed, setWorkClinicConfirmed] = useState(false);
   const [query, setQuery] = useState("");
   const [taskViewMode, setTaskViewMode] = useState("priority");
   const [patients, setPatients] = useState([]);
@@ -82,7 +83,7 @@ function App() {
     if (!profile) return;
     setClinic(profile.default_clinic || "台北");
     loadAll();
-    const channel = supabase.channel("new-his-demo-v14-realtime")
+    const channel = supabase.channel("new-his-demo-v15-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "patients_mock" }, loadAll)
       .on("postgres_changes", { event: "*", schema: "public", table: "patient_events" }, loadAll)
       .on("postgres_changes", { event: "*", schema: "public", table: "appointments_mock" }, loadAll)
@@ -267,10 +268,20 @@ function App() {
   }
 
   async function nextStatus(patient) {
+    if (patient.current_status === "已完診") return;
     const idx = statuses.indexOf(patient.current_status);
     const next = statuses[Math.min(idx + 1, statuses.length - 1)];
     await supabase.from("patients_mock").update({ current_status: next, progress: Math.min(100, Number(patient.progress || 0) + 16) }).eq("id", patient.id);
-    await logAudit("流程狀態更新", "今日流程", "patients_mock", `${patient.name}: ${patient.current_status} -> ${next}`);
+    await supabase.from("patient_events").insert({
+      patient_id: patient.id,
+      event_type: "流程紀錄",
+      title: `完成：${patient.current_status}`,
+      content: `由 ${patient.current_status} 更新為 ${next}。此紀錄用於追蹤每次治療／流程站點變化。`,
+      clinic,
+      created_by: session.user.id,
+      created_by_email: profile?.email || session.user.email
+    });
+    await logAudit("完成流程站點", "今日流程", "patients_mock", `${patient.name}: ${patient.current_status} -> ${next}`);
     loadAll();
   }
 
@@ -413,25 +424,74 @@ function App() {
     loadAll();
   }
 
-  async function addLeave(monthOffset = 0) {
-    const base = addMonths(new Date(), monthOffset);
-    const key = monthKey(base);
-    const start = `${key}-15`;
+  async function addLeave(form) {
+    const startDate = form.start_date || date;
+    const endDate = form.end_date || startDate;
+    const key = startDate.slice(0, 7);
+    const delegateName = form.delegate_name || "未指定代理人";
+    const periodText = `${startDate} ${form.start_time || "09:00"} - ${endDate} ${form.end_time || "18:00"}`;
     await supabase.from("leave_requests").insert({
       applicant_id: session.user.id,
       applicant_name: profile.full_name,
-      leave_type: "特休",
-      period_text: `${start} 09:00-18:00`,
-      start_date: start,
-      end_date: start,
+      leave_type: form.leave_type || "特休",
+      request_kind: form.request_kind || "請假",
+      period_text: periodText,
+      start_date: startDate,
+      end_date: endDate,
+      start_time: form.start_time || "09:00",
+      end_time: form.end_time || "18:00",
+      reason: form.reason || "",
       month_key: key,
-      delegate_name: "請指定代理人",
-      delegate_status: "待同意",
-      approval_status: "待審核",
+      delegate_name: delegateName,
+      delegate_status: delegateName === "未指定代理人" ? "未指定" : "待代理人同意",
+      approval_status: "待主管審核",
       progress: 25,
       clinic
     });
-    await logAudit("新增三個月內請假卡位", "Leave", "leave_requests", `${profile.full_name} ${key}`);
+    await logAudit("新增請假／卡位／調班申請", "Leave", "leave_requests", `${profile.full_name}｜${form.request_kind || "請假"}｜${periodText}`);
+    flash("申請已送出，待代理人與主管審核");
+    loadAll();
+  }
+
+  async function updateLeaveRequest(row, updates, message) {
+    await supabase.from("leave_requests").update(updates).eq("id", row.id);
+    await logAudit(message || "更新請假代理流程", "Leave", "leave_requests", `${row.applicant_name}｜${row.period_text}`);
+    loadAll();
+  }
+
+  async function approveLeave(row) {
+    const start = row.start_date || String(row.period_text || "").slice(0, 10) || date;
+    const key = row.month_key || start.slice(0, 7);
+    await supabase.from("leave_requests").update({
+      approval_status: "主管已核准",
+      progress: 100,
+      manager_approval_at: new Date().toISOString()
+    }).eq("id", row.id);
+
+    await supabase.from("schedules").insert({
+      work_date: start,
+      month_key: key,
+      staff_name: row.applicant_name,
+      group_name: "請假／卡位",
+      shift_name: `${row.request_kind || "請假"}：${row.leave_type || ""}`,
+      hours: 0,
+      clinic
+    });
+
+    if (row.delegate_name && !["未指定代理人", "未指定"].includes(row.delegate_name)) {
+      await supabase.from("schedules").insert({
+        work_date: start,
+        month_key: key,
+        staff_name: row.delegate_name,
+        group_name: "代理",
+        shift_name: `代理：${row.applicant_name}`,
+        hours: 0,
+        clinic
+      });
+    }
+
+    await logAudit("主管核准並寫入班表", "Leave", "leave_requests", `${row.applicant_name}｜${row.delegate_name}`);
+    flash("主管已核准，並已寫入班表／代理資訊");
     loadAll();
   }
 
@@ -502,19 +562,19 @@ function App() {
   if (!isConfigured) return <ConfigMissing />;
   if (!session) return <Login bootError={bootError} signIn={signInWithGoogle} />;
   if (!profile) return <div className="loading">正在建立 Google 帳號綁定與人員檔...</div>;
+  if (!workClinicConfirmed) return <ClinicGate profile={profile} clinic={clinic} setClinic={setClinic} confirm={() => setWorkClinicConfirmed(true)} signOut={signOut} />;
 
   return <main className="app">
     <div className="watermark" />
     {toast && <div className="toast">{toast}</div>}
     {selectedPatient && <PatientModal patient={selectedPatient} events={patientEvents.filter(e => e.patient_id === selectedPatient.id)} onClose={() => setSelectedPatient(null)} nextStatus={nextStatus} addPatientEvent={addPatientEvent} />}
     <header className="topbar">
-      <div className="brand"><button className="icon" onClick={() => setMobileOpen(!mobileOpen)}>☰</button><div><strong>{APP_TITLE}</strong><small><span className="versionBadge">V14</span> 大版整合：現場＋照護＋行政</small></div></div>
-      <details className="filterPanel"><summary>搜尋與篩選 / Filter</summary><div className="filterGrid">
-        <label>院區 / Clinic<select value={clinic} onChange={e => setClinic(e.target.value)}>{clinics.map(c => <option key={c}>{c}</option>)}</select></label>
+      <div className="brand"><button className="icon" onClick={() => setMobileOpen(!mobileOpen)}>☰</button><div><strong>{APP_TITLE}</strong><small><span className="versionBadge">V15</span> 大版整合：現場＋照護＋行政</small></div></div>
+      <details className="filterPanel"><summary>搜尋與篩選 / Filter</summary><div className="filterGrid filterGridTwo">
         <label>日期 / Date<input type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
         <label>搜尋 / Search<input value={query} onChange={e => setQuery(e.target.value)} placeholder="患者、任務、公告..." /></label>
       </div></details>
-      <div className="userbox"><div><strong>{profile.full_name}</strong><small>{roles[profile.role]}｜{profile.group_name || "未設定組別"}</small><small>{profile.email}｜預設院區 {profile.default_clinic || clinic}</small></div><button onClick={signOut} className="textbtn">登出</button></div>
+      <div className="userbox"><div><strong>{profile.full_name}</strong><small>{roles[profile.role]}｜{profile.group_name || "未設定組別"}｜今日院區：{clinic}</small><small>{profile.email}</small></div><div className="userActions"><button onClick={() => setWorkClinicConfirmed(false)} className="textbtn">更換院區</button><button onClick={signOut} className="textbtn">登出</button></div></div>
     </header>
 
     <aside className={`sidebar ${mobileOpen ? "open" : ""}`}>
@@ -524,7 +584,7 @@ function App() {
     </aside>
 
     <section className="content">
-      {view === "dashboard" && <Dashboard patients={filteredPatients} tasks={sortedTasks(filteredTasks)} allTasks={filteredTasks} announcements={announcements} reads={reads} profile={profile} taskViewMode={taskViewMode} setTaskViewMode={setTaskViewMode} readAnnouncement={readAnnouncement} workOrders={workOrders} appointments={appointments}/>}
+      {view === "dashboard" && <Dashboard patients={filteredPatients} tasks={sortedTasks(filteredTasks)} allTasks={filteredTasks} announcements={announcements} reads={reads} profile={profile} taskViewMode={taskViewMode} setTaskViewMode={setTaskViewMode} readAnnouncement={readAnnouncement} workOrders={workOrders} appointments={appointments} leave={leave}/>}
       {view === "flow" && <Flow patients={filteredPatients} nextStatus={nextStatus} openPatient={setSelectedPatient} />}
       {view === "registration" && <Registration patients={filteredPatients} appointments={appointments} createAppointment={createAppointment} />}
       {view === "patients" && <Patients patients={filteredPatients} patientEvents={patientEvents} createPatientFromForm={createPatientFromForm} addPatientEvent={addPatientEvent} openPatient={setSelectedPatient} />}
@@ -533,8 +593,8 @@ function App() {
       {view === "ai" && <AIHelper profile={profile} clinic={clinic} patients={patients} tasks={tasks} announcements={announcements} schedule={schedule} leave={leave} aiLogs={aiLogs} logAudit={logAudit} loadAll={loadAll}/>}
       {view === "reports" && <Reports patients={patients} tasks={tasks} workOrders={workOrders} appointments={appointments} schedule={schedule} announcements={announcements} reads={reads} />}
       {view === "staff" && <Staff staff={staff} demoStaff={demoStaff} profile={profile} updateRole={updateRole} updateProfileField={updateProfileField} seedDemoStaff={seedDemoStaff} updateDemoStaff={updateDemoStaff} />}
-      {view === "leave" && <Leave leave={leave} addLeave={addLeave} />}
-      {view === "schedule" && <Schedule schedule={schedule} shiftSwaps={shiftSwaps} addShiftSwap={addShiftSwap} seedMonthSchedule={seedMonthSchedule} selectedMonth={selectedMonth} setSelectedMonth={setSelectedMonth} />}
+      {view === "leave" && <Leave leave={leave} profile={profile} demoStaff={demoStaff} staff={staff} addLeave={addLeave} updateLeaveRequest={updateLeaveRequest} approveLeave={approveLeave} />}
+      {view === "schedule" && <Schedule schedule={schedule} shiftSwaps={shiftSwaps} addShiftSwap={addShiftSwap} seedMonthSchedule={seedMonthSchedule} selectedMonth={selectedMonth} setSelectedMonth={setSelectedMonth} profile={profile} demoStaff={demoStaff} />}
       {view === "announcements" && <Announcements announcements={announcements} reads={reads} profile={profile} addAnnouncement={addAnnouncement} readAnnouncement={readAnnouncement} />}
       {view === "audit" && <Audit audit={audit} />}
       {view === "moduleMap" && <ModuleMap />}
@@ -554,6 +614,27 @@ function App() {
 
 function ConfigMissing() { return <div className="loginPage"><div className="loginCard"><h1>尚未設定 Supabase 環境變數</h1><p>請依照 <code>.env.example</code> 建立 <code>.env.local</code>，並設定 VITE_SUPABASE_URL 與 VITE_SUPABASE_ANON_KEY。</p></div></div>; }
 function Login({ bootError, signIn }) { return <div className="loginPage"><div className="loginCard"><div className="mark">HIS</div><h1>{APP_TITLE}</h1><p>多人雲端互動 Demo：Google 登入 + Supabase + OpenAI 行政助理。</p><div className="notice"><b>Demo 邊界</b><p>不使用真實病患資料。所有患者、任務、公告、排班、請假皆為示範資料。</p></div><button className="primary full" onClick={signIn}>使用 Google 登入 / Sign in with Google</button>{bootError && <p className="error">{bootError}</p>}<small>最高系統管理員信箱：{ADMIN_EMAIL}</small></div></div>; }
+
+function ClinicGate({ profile, clinic, setClinic, confirm, signOut }) {
+  const [selected, setSelected] = useState(clinic || profile.default_clinic || "台北");
+  return <div className="loginPage"><div className="loginCard">
+    <div className="mark">HIS</div>
+    <h1>選擇今日上班院區</h1>
+    <p>請先選擇今天要進入的院區，系統會依此載入該院區的預約、患者、任務、公告與排班資料。</p>
+    <label className="gateLabel">今日院區 / Today Clinic
+      <select value={selected} onChange={e=>setSelected(e.target.value)}>
+        {clinics.map(c=><option key={c}>{c}</option>)}
+      </select>
+    </label>
+    <div className="notice">
+      <b>{profile.full_name}</b>
+      <p>{roles[profile.role]}｜{profile.group_name || "未設定組別"}｜{profile.email}</p>
+    </div>
+    <button className="primary full" onClick={()=>{ setClinic(selected); confirm(); }}>進入 {selected} 院區</button>
+    <button className="textbtn full" onClick={signOut}>登出</button>
+  </div></div>;
+}
+
 function MenuGroup({ title, items, view, setView, can }) { return <details open><summary>{title}</summary>{items.map(([id,label]) => <button key={id} disabled={!can(id)} className={`nav ${view===id ? "active" : ""}`} onClick={() => setView(id)}>{label}</button>)}</details>; }
 function PageTitle({ title, desc, actions }) { return <div className="pageTitle"><div><h2>{title}</h2><p>{desc}</p></div><div className="actions">{actions}</div></div>; }
 function Card({ title, children }) { return <div className="card"><h3>{title}</h3>{children}</div>; }
@@ -563,17 +644,19 @@ function progress(v) { return <><div className="progress"><span style={{ width: 
 function filterRows(rows, q, fields) { const s = String(q || "").trim().toLowerCase(); if (!s) return rows || []; return (rows || []).filter(r => fields.some(f => String(r[f] || "").toLowerCase().includes(s))); }
 function DataTable({ headers, rows, compact }) { return <div className={`tableWrap ${compact ? "compact" : ""}`}><table><thead><tr>{headers.map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>{rows.map((r,i) => <tr key={i}>{r.map((c,j) => <td key={j}>{c}</td>)}</tr>)}</tbody></table></div>; }
 
-function Dashboard({ patients, tasks, allTasks, announcements, reads, profile, taskViewMode, setTaskViewMode, readAnnouncement, workOrders, appointments }) {
+function Dashboard({ patients, tasks, allTasks, announcements, reads, profile, taskViewMode, setTaskViewMode, readAnnouncement, workOrders, appointments, leave }) {
   const high = tasks.filter(t => t.priority === "高" && t.status !== "已完成").length;
   const unreadList = announcements.filter(a => !reads.some(r => r.announcement_id === a.id && r.user_id === profile.id));
   const pending = tasks.filter(t => t.status !== "已完成");
+  const relevantLeave = isManager(profile.role) ? leave.filter(l => l.approval_status !== "主管已核准" && l.cancel_status !== "已取消") : leave.filter(l => l.applicant_name === profile.full_name || l.delegate_name === profile.full_name);
   return <>
-    <PageTitle title="工作指揮中心" desc="V14 以三大組別分工測試：現場流程、個案照護、行政營運。" />
+    <PageTitle title="工作指揮中心" desc="依角色揭露必要資訊：一般人看自己的任務、公告、代理與請假；主管看全院區待審事項。" />
     <div className="compactMetrics">
       <Metric title="今日患者" value={patients.length}/>
       <Metric title="預約掛號" value={appointments.length}/>
       <Metric title="照護工單" value={workOrders.filter(w=>w.status!=="已完成").length}/>
       <Metric title="高優先" value={high} tone="red"/>
+      <Metric title="休假／代理待處理" value={relevantLeave.length} tone="yellow"/>
       <Metric title="未簽收公告" value={unreadList.length} tone="yellow"/>
     </div>
     <div className="dashboardGrid">
@@ -585,10 +668,23 @@ function Dashboard({ patients, tasks, allTasks, announcements, reads, profile, t
         <CollapsibleTaskList tasks={pending} mode={taskViewMode} limit={2}/>
         {!pending.length && <p className="muted">目前無待辦。可到 Demo 管理設定產生示範資料。</p>}
       </Card>
+      <Card title="休假／代理／審核提醒"><LeaveDashboard leave={relevantLeave} profile={profile} /></Card>
       <Card title="公告提醒"><AnnouncementPreview announcements={unreadList} readAnnouncement={readAnnouncement} /></Card>
     </div>
   </>;
 }
+
+function LeaveDashboard({ leave, profile }) {
+  if (!leave.length) return <p className="muted">目前沒有與你相關的休假、代理或主管審核事項。</p>;
+  const first = leave.slice(0,2), rest = leave.slice(2);
+  const item = (l) => <div className="taskLine" key={l.id}>
+    {badge(l.request_kind || "請假", "yellow")}
+    <b>{l.applicant_name}｜{l.period_text}</b>
+    <small>代理：{l.delegate_name || "未指定"}｜代理狀態：{l.delegate_status}｜主管審核：{l.approval_status}</small>
+  </div>;
+  return <>{first.map(item)}{rest.length>0 && <details className="innerDetails"><summary>展開其餘 {rest.length} 筆</summary>{rest.map(item)}</details>}</>;
+}
+
 function GroupPendingOverview({ tasks }) {
   const pending = tasks.filter(t => t.status !== "已完成");
   const rows = groups.map(g => ({ group:g, count: pending.filter(t=>t.group_name===g).length, high: pending.filter(t=>t.group_name===g && t.priority==="高").length })).sort((a,b)=>b.count-a.count);
@@ -611,9 +707,9 @@ function AnnouncementPreview({ announcements, readAnnouncement }) {
   return <div>{first.map(item)}{rest.length>0 && <details className="compactDetails"><summary>展開其餘 {rest.length} 則公告</summary>{rest.map(item)}</details>}</div>;
 }
 
-function Flow({ patients, nextStatus, openPatient }) { return <><PageTitle title="今日流程看板" desc="每個流程只顯示前兩位，其餘折疊；完成本站代表各站點人員把患者推進到下一流程。" /><div className="kanban">{statuses.map(s => <PatientLane key={s} status={s} patients={patients.filter(p=>p.current_status===s)} nextStatus={nextStatus} openPatient={openPatient}/>)}</div></>; }
+function Flow({ patients, nextStatus, openPatient }) { return <><PageTitle title="今日流程看板" desc="每個流程只顯示前兩位，其餘折疊；完成代表記錄本次流程站點並推進到下一個合理狀態。" /><div className="kanban">{statuses.map(s => <PatientLane key={s} status={s} patients={patients.filter(p=>p.current_status===s)} nextStatus={nextStatus} openPatient={openPatient}/>)}</div></>; }
 function PatientLane({ status, patients, nextStatus, openPatient }) { const first=patients.slice(0,2), rest=patients.slice(2); const card=p=><PatientCard key={p.id} p={p} nextStatus={nextStatus} openPatient={openPatient}/>; return <div className="lane"><h3>{status}<span>{patients.length}</span></h3>{first.map(card)}{rest.length>0 && <details className="innerDetails"><summary>展開其餘 {rest.length} 人</summary>{rest.map(card)}</details>}</div>; }
-function PatientCard({ p, nextStatus, openPatient }) { return <div className="pCard"><button className="cardOpen" onClick={()=>openPatient(p)}><b>{p.name}</b><small>{p.chart_no}｜{p.disease}｜座號 {p.seat_no}</small><em className="tapHint">點擊查看掛號詳細資料</em></button><div className="cardActions"><button className="secondary" title="各站人員完成本站工作後，手動推進到下一個流程狀態。" onClick={() => nextStatus(p)}>完成本站 → 下一步</button></div></div>; }
+function PatientCard({ p, nextStatus, openPatient }) { return <div className="pCard"><button className="cardOpen" onClick={()=>openPatient(p)}><b>{p.name}</b><small>{p.chart_no}｜{p.disease}｜座號 {p.seat_no}</small><em className="tapHint">點擊查看掛號詳細資料</em></button>{p.current_status !== "已完診" && <div className="cardActions"><button className="secondary" title="完成此流程站點並留下紀錄。" onClick={() => nextStatus(p)}>完成</button></div>}</div>; }
 
 function PatientModal({ patient, events = [], onClose, nextStatus, addPatientEvent }) {
   const [memo, setMemo] = useState("");
@@ -621,7 +717,7 @@ function PatientModal({ patient, events = [], onClose, nextStatus, addPatientEve
   return <div className="modalBackdrop" onClick={onClose}><div className="modalCard wideModal" onClick={e=>e.stopPropagation()}>
     <div className="modalHead"><h3>{patient.name}｜{patient.chart_no}</h3><button className="textbtn" onClick={onClose}>關閉</button></div>
     <div className="patientSections">{patientFieldGroups.map(g=><details key={g.title} open><summary>{g.title}</summary><div className="fieldGrid">{g.fields.map(f=><div className="field" key={f}><span>{fieldLabel[f]||f}</span><strong>{String(patient[f] ?? "-")}</strong></div>)}</div></details>)}</div>
-    <div className="card innerCard"><h3>掛號詳細資料與紀錄新增</h3><textarea className="wideText" value={memo} onChange={e=>setMemo(e.target.value)} placeholder="可輸入初診、複診、客服關懷、列管、居家諮詢等備註。"/><div className="moduleActions">{["初診建檔","複診登記","客服關懷","居家諮詢","列管事項","備註紀錄"].map(t=><button key={t} className="secondary" onClick={()=>submitEvent(t)}>{t}</button>)}<button className="primary" onClick={()=>nextStatus(patient)}>完成本站 → 下一步</button></div></div>
+    <div className="card innerCard"><h3>掛號詳細資料與紀錄新增</h3><textarea className="wideText" value={memo} onChange={e=>setMemo(e.target.value)} placeholder="可輸入初診、複診、客服關懷、列管、居家諮詢等備註。"/><div className="moduleActions">{["初診建檔","複診登記","客服關懷","居家諮詢","列管事項","備註紀錄"].map(t=><button key={t} className="secondary" onClick={()=>submitEvent(t)}>{t}</button>)}<button className="primary" onClick={()=>nextStatus(patient)}>完成</button></div></div>
     <div className="card innerCard"><h3>患者事件紀錄</h3>{!events.length && <p className="muted">尚無事件紀錄。</p>}<div className="eventTimeline">{events.slice(0,8).map(ev=><div className="eventItem" key={ev.id}>{badge(ev.event_type)}<b>{ev.title}</b><small>{new Date(ev.created_at).toLocaleString("zh-TW")}｜{ev.created_by_email || "系統"}</small><p>{ev.content}</p></div>)}</div></div>
   </div></div>;
 }
@@ -685,7 +781,34 @@ function CareOps({ patients, workOrders, createWorkOrder, updateWorkOrder }) {
   </>;
 }
 
-function Tasks({ tasks, addTask, completeTask }) { return <><PageTitle title="任務中心" desc="照會、交接、關懷、列管、製衣、寄送等統一任務化。" actions={<button className="primary" onClick={addTask}>新增雲端任務</button>} /><DataTable headers={["優先","任務","類型","組別","狀態","到期日","操作"]} rows={tasks.map(t=>[badge(t.priority,t.priority==="高"?"red":t.priority==="中"?"yellow":"gray"),t.title,t.task_type,t.group_name,t.status,t.due_date,<button className="secondary" onClick={()=>completeTask(t)}>完成</button>])}/></>; }
+function Tasks({ tasks, addTask, completeTask }) {
+  const [priority, setPriority] = useState("");
+  const [type, setType] = useState("");
+  const [group, setGroup] = useState("");
+  const [status, setStatus] = useState("");
+  const [due, setDue] = useState("");
+  const filtered = tasks.filter(t =>
+    (!priority || t.priority === priority) &&
+    (!type || t.task_type === type) &&
+    (!group || t.group_name === group) &&
+    (!status || t.status === status) &&
+    (!due || t.due_date === due)
+  );
+  return <>
+    <PageTitle title="任務中心" desc="可依優先、類型、組別、狀態、到期日篩選，避免資訊過量。" actions={<button className="primary" onClick={addTask}>新增雲端任務</button>} />
+    <Card title="任務篩選">
+      <div className="formGrid">
+        <label>優先<select value={priority} onChange={e=>setPriority(e.target.value)}><option value="">全部</option><option>高</option><option>中</option><option>低</option></select></label>
+        <label>類型<select value={type} onChange={e=>setType(e.target.value)}><option value="">全部</option>{taskTypes.map(t=><option key={t}>{t}</option>)}</select></label>
+        <label>組別<select value={group} onChange={e=>setGroup(e.target.value)}><option value="">全部</option>{groups.map(g=><option key={g}>{g}</option>)}</select></label>
+        <label>狀態<select value={status} onChange={e=>setStatus(e.target.value)}><option value="">全部</option><option>待處理</option><option>進行中</option><option>待審核</option><option>已完成</option></select></label>
+        <label>到期日<input type="date" value={due} onChange={e=>setDue(e.target.value)}/></label>
+        <button className="secondary" onClick={()=>{setPriority("");setType("");setGroup("");setStatus("");setDue("");}}>清除篩選</button>
+      </div>
+    </Card>
+    <DataTable headers={["優先","任務","類型","組別","狀態","到期日","操作"]} rows={filtered.map(t=>[badge(t.priority,t.priority==="高"?"red":t.priority==="中"?"yellow":"gray"),t.title,t.task_type,t.group_name,t.status,t.due_date,<button className="secondary" onClick={()=>completeTask(t)}>完成</button>])}/>
+  </>;
+}
 
 function Reports({ patients, tasks, workOrders, appointments, schedule, announcements, reads }) {
   const unfinished=tasks.filter(t=>t.status!=="已完成").length;
@@ -709,14 +832,91 @@ function Staff({ staff, demoStaff, profile, updateRole, updateProfileField, seed
   </>;
 }
 
-function Leave({ leave, addLeave }) { return <><PageTitle title="請假與代理" desc="可預先建立未來三個月內的假單卡位；正式版再加入代理人同意與主管核准。" actions={<><button className="secondary" onClick={()=>addLeave(0)}>本月卡位</button><button className="secondary" onClick={()=>addLeave(1)}>下月卡位</button><button className="secondary" onClick={()=>addLeave(2)}>二個月後</button><button className="primary" onClick={()=>addLeave(3)}>三個月後</button></>} /><DataTable headers={["申請人","假別","期間","月份","代理人","代理狀態","審核狀態","進度"]} rows={leave.map(l=>[l.applicant_name,l.leave_type,l.period_text,l.month_key,l.delegate_name,l.delegate_status,l.approval_status,progress(l.progress)])}/></>; }
+function Leave({ leave, profile, demoStaff, staff, addLeave, updateLeaveRequest, approveLeave }) {
+  const people = [...demoStaff.map(s=>s.full_name), ...staff.map(s=>s.full_name)].filter(Boolean);
+  const [form, setForm] = useState({
+    request_kind: "請假",
+    leave_type: "特休",
+    start_date: new Date().toISOString().slice(0,10),
+    end_date: new Date().toISOString().slice(0,10),
+    start_time: "09:00",
+    end_time: "18:00",
+    delegate_name: people[0] || "未指定代理人",
+    reason: ""
+  });
+  const submit = () => addLeave(form);
+  const canManager = isManager(profile.role);
+  const relevant = canManager ? leave : leave.filter(l => l.applicant_name === profile.full_name || l.delegate_name === profile.full_name);
+  return <>
+    <PageTitle title="請假／卡位／代理" desc="申請人選擇假別、期間與代理人；代理人同意後送主管審核，主管核准後寫入班表。" actions={<button className="primary" onClick={submit}>送出申請</button>} />
+    <Card title="申請表單">
+      <div className="patientForm">
+        <label>申請類型<select value={form.request_kind} onChange={e=>setForm({...form,request_kind:e.target.value})}><option>請假</option><option>卡位</option><option>調班</option></select></label>
+        <label>假別／事由分類<select value={form.leave_type} onChange={e=>setForm({...form,leave_type:e.target.value})}><option>特休</option><option>病假</option><option>事假</option><option>公假</option><option>補休</option><option>調班</option><option>其他</option></select></label>
+        <label>指定代理人<select value={form.delegate_name} onChange={e=>setForm({...form,delegate_name:e.target.value})}><option>未指定代理人</option>{people.map(p=><option key={p}>{p}</option>)}</select></label>
+        <label>開始日期<input type="date" value={form.start_date} onChange={e=>setForm({...form,start_date:e.target.value,end_date:e.target.value})}/></label>
+        <label>開始時間<input type="time" value={form.start_time} onChange={e=>setForm({...form,start_time:e.target.value})}/></label>
+        <label>結束時間<input type="time" value={form.end_time} onChange={e=>setForm({...form,end_time:e.target.value})}/></label>
+        <label className="wideField">原因／備註<textarea value={form.reason} onChange={e=>setForm({...form,reason:e.target.value})} placeholder="請輸入請假、卡位或調班原因。"/></label>
+      </div>
+    </Card>
+    <Card title="我的／主管待審事項">
+      <DataTable headers={["類型","申請人","假別","期間","代理人","代理狀態","主管審核","操作"]} rows={relevant.map(l=>[
+        l.request_kind || "請假",
+        l.applicant_name,
+        l.leave_type,
+        l.period_text,
+        l.delegate_name,
+        l.delegate_status,
+        l.approval_status,
+        <div className="rowActions">
+          {l.delegate_name === profile.full_name && l.delegate_status !== "代理人已同意" && <button className="secondary" onClick={()=>updateLeaveRequest(l,{delegate_status:"代理人已同意",progress:60,delegate_approval_at:new Date().toISOString()},"代理人同意")}>同意代理</button>}
+          {canManager && l.delegate_status === "代理人已同意" && l.approval_status !== "主管已核准" && <button className="primary" onClick={()=>approveLeave(l)}>主管核准</button>}
+          {(canManager || l.applicant_name === profile.full_name) && l.cancel_status !== "已取消" && <button className="danger" onClick={()=>updateLeaveRequest(l,{cancel_status:"已取消",approval_status:"已取消",progress:0,cancelled_at:new Date().toISOString()},"取消申請")}>取消</button>}
+        </div>
+      ])}/>
+    </Card>
+  </>;
+}
 
-function Schedule({ schedule, shiftSwaps, addShiftSwap, seedMonthSchedule, selectedMonth, setSelectedMonth }) {
+function Schedule({ schedule, shiftSwaps, addShiftSwap, seedMonthSchedule, selectedMonth, setSelectedMonth, profile, demoStaff }) {
+  const [group, setGroup] = useState(groups[0]);
+  const [person, setPerson] = useState(profile.full_name || "");
   const totals={}; schedule.forEach(s=>totals[s.staff_name]=(totals[s.staff_name]||0)+Number(s.hours||0));
-  return <><PageTitle title="月排班與調班" desc="支援整月排班、月工時統計與調班申請。" actions={<><select value={selectedMonth} onChange={e=>setSelectedMonth(e.target.value)}>{nextMonthOptions().map(m=><option key={m}>{m}</option>)}</select><button className="primary" onClick={seedMonthSchedule}>產生整月排班</button><button className="secondary" onClick={addShiftSwap}>新增調班申請</button></>} />
-    <div className="split"><Card title={`${selectedMonth} 月排班`}><DataTable compact headers={["日期","人員","組別","班別","時數"]} rows={schedule.map(s=>[s.work_date,s.staff_name,s.group_name,s.shift_name,s.hours])}/></Card><Card title="工時統計與公平性提示"><DataTable compact headers={["人員","月工時","提示"]} rows={Object.entries(totals).map(([name,h])=>[name,`${h} 小時`,h>180?"偏高，建議調整":h<120?"偏低，可評估補班":"正常"])}/></Card></div>
+  const people = [...new Set([...demoStaff.map(s=>s.full_name), ...schedule.map(s=>s.staff_name)].filter(Boolean))];
+  return <>
+    <PageTitle title="月排班與調班" desc="以組別為單位呈現月班表；請假、卡位、代理核准後會寫入班表。" actions={<><select value={selectedMonth} onChange={e=>setSelectedMonth(e.target.value)}>{nextMonthOptions().map(m=><option key={m}>{m}</option>)}</select><button className="primary" onClick={seedMonthSchedule}>產生整月排班</button><button className="secondary" onClick={addShiftSwap}>新增調班申請</button><button className="secondary" onClick={()=>window.print()}>列印／另存 PDF</button></>} />
+    <Card title="組別月班表">
+      <div className="formGrid">
+        <label>組別<select value={group} onChange={e=>setGroup(e.target.value)}>{groups.map(g=><option key={g}>{g}</option>)}</select></label>
+        <label>個人班表<select value={person} onChange={e=>setPerson(e.target.value)}><option value="">請選擇</option>{people.map(p=><option key={p}>{p}</option>)}</select></label>
+        <button className="secondary" onClick={()=>window.print()}>列印目前畫面／PDF</button>
+      </div>
+      <RosterGrid schedule={schedule} selectedMonth={selectedMonth} group={group} />
+    </Card>
+    {person && <Card title={`${person} 個人班表`}><DataTable compact headers={["日期","組別","班別","時數"]} rows={schedule.filter(s=>s.staff_name===person).map(s=>[s.work_date,s.group_name,s.shift_name,s.hours])}/></Card>}
+    <details className="card"><summary>工時統計與公平性提示</summary><DataTable compact headers={["人員","月工時","提示"]} rows={Object.entries(totals).map(([name,h])=>[name,`${h} 小時`,h>180?"偏高，建議調整":h<120?"偏低，可評估補班":"正常"])}/></details>
     <Card title="調班申請"><DataTable compact headers={["申請人","對象","日期","原班別","欲換班別","狀態","原因"]} rows={(shiftSwaps||[]).map(s=>[s.requester_name,s.target_name,s.request_date,s.original_shift,s.requested_shift,s.status,s.reason])}/></Card>
   </>;
+}
+
+function RosterGrid({ schedule, selectedMonth, group }) {
+  const dim = daysInMonth(selectedMonth);
+  const days = Array.from({length: dim}, (_,i)=>i+1);
+  const slots = [
+    ["早班", "早班"],
+    ["午班", "午班"],
+    ["晚班", "晚班"],
+    ["休／假／代理", "休"]
+  ];
+  const cell = (day, keyword) => {
+    const date = ymDate(selectedMonth, day);
+    return schedule
+      .filter(s => s.work_date === date && s.group_name === group)
+      .filter(s => keyword === "休" ? /休|假|代理/.test(s.shift_name || "") : String(s.shift_name || "").includes(keyword))
+      .map(s => <span className="nameChip" title={`${s.staff_name}｜${s.shift_name}`} key={`${s.id || s.staff_name}-${s.shift_name}`}>{String(s.staff_name || "").slice(0,1)}</span>);
+  };
+  return <div className="rosterWrap"><table className="rosterTable"><thead><tr><th>時段</th>{days.map(d=><th key={d}>{d}</th>)}</tr></thead><tbody>{slots.map(([label,key])=><tr key={label}><th>{label}</th>{days.map(d=><td key={d}>{cell(d,key)}</td>)}</tr>)}</tbody></table></div>;
 }
 
 function Announcements({ announcements, reads, profile, addAnnouncement, readAnnouncement }) {
