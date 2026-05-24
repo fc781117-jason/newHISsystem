@@ -43,7 +43,26 @@
   body.print-roster .printTarget{position:absolute;left:0;top:0;width:100%;padding:12px}
   body.print-roster .printTitle{display:block!important;text-align:center;margin-bottom:12px}
   body.print-roster .rosterWrap{overflow:visible;border:none}
-  body.print-roster .rosterTable{min-width:0;width:100%;font-size:11px}
+  body.print-roster .rosterTable{min-width:0;width:100%;font-size:10px}
   body.print-roster .rosterTable th, body.print-roster .rosterTable td{padding:3px;min-width:22px;height:30px}
   body.print-roster .nameChip{width:20px;height:20px;font-size:10px}
+}
+
+
+/* ===== V17 manual roster and permission overrides ===== */
+.cellAdd{display:inline-grid;place-items:center;width:24px;height:24px;border:1px dashed #93c5fd;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-weight:900;margin:2px;cursor:pointer}
+.cellAdd:hover{background:#dbeafe}
+.permBox{min-width:240px;display:grid;gap:8px}
+.permAdd{display:flex;gap:6px}
+.permAdd select{min-width:150px}
+.permTags{display:flex;gap:6px;flex-wrap:wrap}
+.permTag{display:inline-flex;gap:4px;align-items:center;border-radius:999px;background:#ecfdf5;color:#047857;font-size:12px;font-weight:900;padding:4px 8px}
+.permTag button{border:none;background:transparent;color:#047857;font-weight:900;cursor:pointer}
+.rosterTable{border:3.5px solid #1f2937}
+.rosterTable th,.rosterTable td{border:1.8px solid #94a3b8}
+.rosterTable thead th{border-bottom:2.6px solid #334155}
+.rosterTable tbody th{border-right:2.6px solid #334155}
+@page{size:A4 landscape;margin:8mm}
+@media print{
+  @page{size:A4 landscape;margin:8mm}
 }

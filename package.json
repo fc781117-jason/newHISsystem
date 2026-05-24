@@ -1,8 +1,8 @@
 {
-  "name": "new-his-demo-v16-roster-leave-dashboard",
-  "version": "16.0.0",
+  "name": "new-his-demo-v17-roster-manual-permissions",
+  "version": "17.0.0",
   "private": true,
-  "description": "NEW HIS demo V16: clickable dashboards, roster-grid print scope, personal roster grid, schedule cell task modal, leave reason presets and approval improvements.",
+  "description": "NEW HIS demo V17: manual roster assignment, roster editing/deletion/move, merged schedule management, shift swap form, and per-user extra permissions.",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
