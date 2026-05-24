@@ -1,8 +1,8 @@
 {
-  "name": "new-his-demo-v15-workflow-roster",
-  "version": "15.0.0",
+  "name": "new-his-demo-v16-roster-leave-dashboard",
+  "version": "16.0.0",
   "private": true,
-  "description": "NEW HIS demo V15: login clinic gate, task filters, leave/delegation approval flow, roster grid schedule and information disclosure optimization.",
+  "description": "NEW HIS demo V16: clickable dashboards, roster-grid print scope, personal roster grid, schedule cell task modal, leave reason presets and approval improvements.",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",

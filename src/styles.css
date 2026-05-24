@@ -23,3 +23,27 @@
   .userbox{grid-template-columns:1fr}
   .userActions{justify-content:flex-start}
 }
+
+
+/* ===== V16 dashboard links, roster print scope and cell task modal ===== */
+.metricButton{border:1px solid #e5e7eb;text-align:left;cursor:pointer}
+.metricButton:hover{outline:2px solid #bfdbfe;transform:translateY(-1px)}
+.metricButton small{color:#1d4ed8;font-weight:900}
+.printTitle{display:none}
+.rosterTable{border:3px solid #334155}
+.rosterTable th,.rosterTable td{border:1.6px solid #94a3b8}
+.rosterTable tbody th{border-right:2.4px solid #64748b}
+.rosterTable td.hasPeople{background:#f8fbff}
+.nameChip{border:none;cursor:pointer;position:relative}
+.nameChip small{font-size:9px;position:absolute;right:-3px;bottom:-3px;background:#fef3c7;color:#92400e;border-radius:999px;padding:0 4px}
+.miniModal{max-width:560px}
+@media print{
+  body.print-roster *{visibility:hidden!important}
+  body.print-roster .printTarget, body.print-roster .printTarget *{visibility:visible!important}
+  body.print-roster .printTarget{position:absolute;left:0;top:0;width:100%;padding:12px}
+  body.print-roster .printTitle{display:block!important;text-align:center;margin-bottom:12px}
+  body.print-roster .rosterWrap{overflow:visible;border:none}
+  body.print-roster .rosterTable{min-width:0;width:100%;font-size:11px}
+  body.print-roster .rosterTable th, body.print-roster .rosterTable td{padding:3px;min-width:22px;height:30px}
+  body.print-roster .nameChip{width:20px;height:20px;font-size:10px}
+}
